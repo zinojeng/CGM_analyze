@@ -22,6 +22,10 @@ def read_file(file):
         st.write("可用的列：", ", ".join(df.columns))
         return None
     
+    # 確保 Date 和 Time 列是字符串類型
+    df['Date'] = df['Date'].astype(str)
+    df['Time'] = df['Time'].astype(str)
+    
     # 合併 Date 和 Time 列來創建 Timestamp 列
     df['Timestamp'] = pd.to_datetime(df['Date'] + ' ' + df['Time'])
     
@@ -43,15 +47,15 @@ def calculate_metrics(df):
     gri = (3.0 * vlow) + (2.4 * low) + (1.6 * vhigh) + (0.8 * high)
     
     return {
-        "VLow (<54 mg/dL)": f"{vlow:.2f}%",
-        "Low (54-<70 mg/dL)": f"{low:.2f}%",
-        "TIR (70-180 mg/dL)": f"{tir:.2f}%",
-        "High (>180-250 mg/dL)": f"{high:.2f}%",
-        "VHigh (>250 mg/dL)": f"{vhigh:.2f}%",
-        "CV": f"{cv:.2f}%",
-        "Mean Glucose": f"{mg:.2f} mg/dL",
-        "GMI": f"{gmi:.2f}%",
-        "GRI": f"{gri:.2f}"
+        "VLow (<54 mg/dL)": f"{vlow:.1f}%",
+        "Low (54-<70 mg/dL)": f"{low:.1f}%",
+        "TIR (70-180 mg/dL)": f"{tir:.1f}%",
+        "High (>180-250 mg/dL)": f"{high:.1f}%",
+        "VHigh (>250 mg/dL)": f"{vhigh:.1f}%",
+        "CV": f"{cv:.1f}%",
+        "Mean Glucose": f"{mg:.1f} mg/dL",
+        "GMI": f"{gmi:.1f}%",
+        "GRI": f"{gri:.1f}"
     }
 
 def create_agp(df):
@@ -95,6 +99,42 @@ def create_agp(df):
     
     return fig
 
+def create_daily_clusters(df):
+    df['Date'] = df['Timestamp'].dt.date
+    daily_stats = df.groupby('Date').apply(lambda x: pd.Series({
+        'Time > 250': (x['Sensor Glucose (mg/dL)'] > 250).mean() * 100,
+        'TAR (181-250)': ((x['Sensor Glucose (mg/dL)'] > 180) & (x['Sensor Glucose (mg/dL)'] <= 250)).mean() * 100,
+        'TIR (70-180)': ((x['Sensor Glucose (mg/dL)'] >= 70) & (x['Sensor Glucose (mg/dL)'] <= 180)).mean() * 100,
+        'TBR (54-69)': ((x['Sensor Glucose (mg/dL)'] >= 54) & (x['Sensor Glucose (mg/dL)'] < 70)).mean() * 100,
+        'Time < 50': (x['Sensor Glucose (mg/dL)'] < 50).mean() * 100
+    }))
+    
+    # 保持順序不變
+    daily_stats = daily_stats[['Time > 250', 'TAR (181-250)', 'TIR (70-180)', 'TBR (54-69)', 'Time < 50']]
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # 使用 bottom 參數來控制堆疊順序
+    bottoms = np.zeros(len(daily_stats))
+    colors = ['red', 'orange', 'green', 'yellow', 'blue']
+    
+    for column in reversed(daily_stats.columns):
+        ax.bar(daily_stats.index, daily_stats[column], bottom=bottoms, label=column, color=colors[daily_stats.columns.get_loc(column)])
+        bottoms += daily_stats[column]
+    
+    ax.set_title('Clinically Similar Clusters')
+    ax.set_ylabel('Percentage (%)')
+    ax.set_xlabel('Date')
+    ax.set_ylim(0, 100)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    # 調整圖例順序並放置在右側
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[::-1], labels[::-1], loc='center left', bbox_to_anchor=(1, 0.5))
+    
+    plt.tight_layout()
+    return fig
+
 st.title("CGM 數據分析")
 
 uploaded_file = st.file_uploader("請上傳您的 CSV 或 Excel 文件", type=["csv", "xlsx"])
@@ -116,6 +156,10 @@ if uploaded_file is not None:
         agp_fig = create_agp(df)
         st.pyplot(agp_fig)
         
+        st.header("Clinically Similar Clusters")
+        csc_fig = create_daily_clusters(df)
+        st.pyplot(csc_fig)
+        
         st.header("數據預覽")
         st.dataframe(df.head())
 
@@ -123,5 +167,5 @@ st.sidebar.header("使用說明")
 st.sidebar.info(
     "1. 點擊 '瀏覽文件' 按鈕上傳您的 CSV 或 Excel 文件。\n"
     "2. 確保您的文件包含 'Date'、'Time' 和 'Sensor Glucose (mg/dL)' 列。\n"
-    "3. 上傳後，您將看到分析結果、Ambulatory Glucose Profile 和數據預覽。"
+    "3. 上傳後，您將看到分析結果、Ambulatory Glucose Profile 和 Clinically Similar Clusters 圖，以及數據預覽。"
 )
