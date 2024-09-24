@@ -99,9 +99,9 @@ def generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact, insulin_ph
     """
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are a professional medical advisor specializing in diabetes management."},
+            {"role": "system", "content": "You are a endocrinologic professor and professional medical advisor specializing in diabetes management. give me clinically relevant insights and professional recommendations based on the following data as detal as you can:"},
             {"role": "user", "content": prompt}
         ]
     )
