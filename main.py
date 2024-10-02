@@ -129,7 +129,7 @@ if uploaded_file:
             st.pyplot(daily_clusters_plot)
         
         if insulin_data is not None:
-            st.header("Insulin Data Analysis")  # 更改為英文標題
+            st.header("胰島素數據分析")  # 更改為英文標題
             
             if not insulin_info:
                 st.warning("No insulin information provided. Please fill in the insulin information in the sidebar.")
@@ -142,7 +142,7 @@ if uploaded_file:
                 st.pyplot(fig)
                 
                 # 顯示統計信息
-                st.subheader("Insulin Injection Statistics")  # 更改為英文副標題
+                st.subheader("胰島素注射統計")  # 更改為英文副標題
                 insulin_stats = get_insulin_statistics(analyzed_insulin_data)
                 cols = st.columns(3)
                 
