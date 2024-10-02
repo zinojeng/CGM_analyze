@@ -4,32 +4,34 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
 
-def calculate_metrics(df):
-    glucose = df['Sensor Glucose (mg/dL)']
+def calculate_metrics(cgm_df):
+    metrics = {}
+    glucose_values = cgm_df['Sensor Glucose (mg/dL)'].dropna()
     
-    vlow = (glucose < 54).mean() * 100
-    low = ((glucose >= 54) & (glucose < 70)).mean() * 100
-    tir = ((glucose >= 70) & (glucose <= 180)).mean() * 100
-    high = ((glucose > 180) & (glucose <= 250)).mean() * 100
-    vhigh = (glucose > 250).mean() * 100
-    
-    cv = glucose.std() / glucose.mean() * 100
-    mg = glucose.mean()
-    gmi = 3.31 + (0.02392 * mg)
-    
-    gri = (3.0 * vlow) + (2.4 * low) + (1.6 * vhigh) + (0.8 * high)
-    
-    return {
-        "VLow (<54 mg/dL)": f"{vlow:.1f}%",
-        "Low (54-<70 mg/dL)": f"{low:.1f}%",
-        "TIR (70-180 mg/dL)": f"{tir:.1f}%",
-        "High (>180-250 mg/dL)": f"{high:.1f}%",
-        "VHigh (>250 mg/dL)": f"{vhigh:.1f}%",
-        "CV": f"{cv:.1f}%",
-        "Mean Glucose": f"{mg:.1f} mg/dL",
-        "GMI": f"{gmi:.1f}%",
-        "GRI": f"{gri:.1f}"
-    }
+    # Calculate Mean Glucose
+    mean_glucose = glucose_values.mean()
+    metrics['Mean Glucose (mg/dL)'] = mean_glucose
+
+    # Calculate time in ranges
+    total_readings = len(glucose_values)
+    metrics['VLow (<54 mg/dL)'] = (glucose_values < 54).sum() / total_readings
+    metrics['Low (54-<70 mg/dL)'] = ((glucose_values >= 54) & (glucose_values < 70)).sum() / total_readings
+    metrics['TIR (70-180 mg/dL)'] = ((glucose_values >= 70) & (glucose_values <= 180)).sum() / total_readings
+    metrics['High (>180-250 mg/dL)'] = ((glucose_values > 180) & (glucose_values <= 250)).sum() / total_readings
+    metrics['VHigh (>250 mg/dL)'] = (glucose_values > 250).sum() / total_readings
+
+    # Calculate CV
+    cv = glucose_values.std() / mean_glucose
+    metrics['CV'] = cv
+
+    # Calculate GMI (Glucose Management Indicator)
+    metrics['GMI'] = 3.31 + (0.02392 * mean_glucose)
+
+    # Calculate GRI (Glycemic Risk Index)
+    gri = np.log(glucose_values / 100) ** 2
+    metrics['GRI'] = gri.mean() * 100
+
+    return metrics
 
 def create_agp(df):
     df['Time'] = df['Timestamp'].dt.strftime('%H:%M')

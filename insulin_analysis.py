@@ -1,12 +1,20 @@
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 
-def extract_insulin_data(file):
+def extract_insulin_data(file_path):
     try:
-        df = pd.read_excel(file)
-        st.write("成功讀取 Excel 文件")
+        if file_path.endswith('.csv'):
+            df = pd.read_csv(file_path)
+            st.write("成功讀取 CSV 文件")
+        elif file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+            df = pd.read_excel(file_path, engine='openpyxl')  # 手動指定引擎
+            st.write("成功讀取 Excel 文件")
+        else:
+            st.error("不支持的文件格式。請上傳 CSV 或 Excel 文件。")
+            return None
     except Exception as e:
-        st.error(f"無法讀取文件 {file.name}：{str(e)}")
+        st.error(f"無法讀取文件：{str(e)}")
         return None
     
     required_columns = ['Date', 'Time', 'Event Marker']
@@ -32,7 +40,7 @@ def extract_insulin_data(file):
     st.write(f"提取胰島素劑量，有效劑量數量：{df['Insulin'].notna().sum()}")
     
     # 只保留有胰島素數據的行
-    insulin_data = df[['Timestamp', 'Insulin']].dropna()
+    insulin_data = df[['Timestamp', 'Insulin', 'Event Marker']].dropna()
     
     if insulin_data.empty:
         st.warning(f"文件中沒有找到有效的胰島素數據。")
@@ -41,38 +49,53 @@ def extract_insulin_data(file):
     st.write(f"最終提取到的有效胰島素數據行數：{len(insulin_data)}")
     return insulin_data
 
-def analyze_insulin(insulin_data):
-    # 確保 Timestamp 列是日期時間類型
-    insulin_data['Timestamp'] = pd.to_datetime(insulin_data['Timestamp'])
+def classify_insulin(hour, dose, insulin_info):
+    long_acting = insulin_info['長效胰島素']['劑量']
+    short_acting = insulin_info['短效/速效胰島素']['劑量']
     
-    # 添加日期列
-    insulin_data['Date'] = insulin_data['Timestamp'].dt.date
+    if 6 <= hour < 10 and dose > 20:
+        return '長效'
+    elif dose <= 10:
+        return '短效/速效'
+    else:
+        return '未知'
+
+def analyze_insulin(insulin_data, insulin_info):
+    analyzed_data = []
+    for _, row in insulin_data.iterrows():
+        timestamp = row['Timestamp']
+        hour = timestamp.hour + timestamp.minute / 60
+        dose = row['Insulin']
+        insulin_type = classify_insulin(hour, dose, insulin_info)
+        analyzed_data.append({
+            'Timestamp': timestamp,
+            'Hour': hour,
+            'Dose': dose,
+            'Type': insulin_type
+        })
+    return pd.DataFrame(analyzed_data)
+
+def plot_insulin_data(analyzed_data, insulin_info):
+    fig, ax = plt.subplots(figsize=(12, 6))
     
-    # 按日期分組計算
-    daily_stats = insulin_data.groupby('Date').agg({
-        'Insulin': ['sum', 'mean', 'max', 'count']
-    })
+    for insulin_type in ['長效', '短效/速效', '未知']:
+        type_data = analyzed_data[analyzed_data['Type'] == insulin_type]
+        ax.scatter(type_data['Hour'], type_data['Dose'], label=insulin_type)
     
-    daily_stats.columns = ['總劑量', '平均劑量', '最大劑量', '注射次數']
+    ax.set_xlabel('時間 (小時)')
+    ax.set_ylabel('劑量 (單位)')
+    ax.set_title('胰島素注射時間和劑量分布')
+    ax.legend()
     
-    # 計算整體統計
-    total_days = len(daily_stats)
-    avg_daily_total = daily_stats['總劑量'].mean()
-    avg_daily_mean = daily_stats['平均劑量'].mean()
-    avg_daily_max = daily_stats['最大劑量'].mean()
-    avg_daily_count = daily_stats['注射次數'].mean()
-    
-    max_daily_total = daily_stats['總劑量'].max()
-    max_daily_dose = daily_stats['最大劑量'].max()
-    max_daily_count = daily_stats['注射次數'].max()
-    
-    return {
-        "平均每日總劑量": f"{avg_daily_total:.2f} 單位",
-        "平均每次劑量": f"{avg_daily_mean:.2f} 單位",
-        "平均每日最大劑量": f"{avg_daily_max:.2f} 單位",
-        "平均每日注射次數": f"{avg_daily_count:.1f} 次",
-        "最大單日總劑量": f"{max_daily_total:.2f} 單位",
-        "最大單次劑量": f"{max_daily_dose:.2f} 單位",
-        "最大單日注射次數": f"{max_daily_count} 次",
-        "分析天數": f"{total_days} 天"
-    }, daily_stats
+    return fig
+
+def get_insulin_statistics(analyzed_data):
+    stats = {}
+    for insulin_type in ['長效', '短效/速效', '未知']:
+        type_data = analyzed_data[analyzed_data['Type'] == insulin_type]
+        if not type_data.empty:
+            stats[insulin_type] = {
+                '平均劑量': type_data['Dose'].mean(),
+                '注射次數': len(type_data)
+            }
+    return stats

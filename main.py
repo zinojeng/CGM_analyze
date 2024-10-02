@@ -1,11 +1,20 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
-from event_analysis import extract_event_data, analyze_insulin, analyze_meal
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+import matplotlib.font_manager as fm
+from event_analysis import extract_event_data, analyze_meal
 from glucose_analysis import calculate_metrics, create_agp, create_daily_clusters
 from deep_analysis import perform_deep_analysis
 from split_csv import split_csv
-from insulin_input import get_insulin_info  # 導入 get_insulin_info 函數
+from insulin_input import get_insulin_info
+from insulin_analysis import extract_insulin_data, analyze_insulin, plot_insulin_data, get_insulin_statistics
+
+# 設置中文顯示
+plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']  # 首選 Arial Unicode MS，備選 SimHei
+plt.rcParams['axes.unicode_minus'] = False  # 解決坐標軸負號顯示問題
 
 def read_cgm_file(file_path):
     if not os.path.exists(file_path):
@@ -24,7 +33,7 @@ def read_cgm_file(file_path):
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
-        st.error(f"文件 {os.path.basename(file_path)} 中缺少以下必要的列：{', '.join(missing_columns)}")
+        st.error(f"文件 {os.path.basename(file_path)} 中缺少以下必要的{', '.join(missing_columns)}")
         return pd.DataFrame()
     
     # 合併 Date 和 Time 列
@@ -33,9 +42,23 @@ def read_cgm_file(file_path):
     df['Sensor Glucose (mg/dL)'] = pd.to_numeric(df['Sensor Glucose (mg/dL)'], errors='coerce')
     return df.sort_values('Timestamp')
 
+def clean_value(value):
+    if isinstance(value, (float, int)):
+        return float(value)
+    if isinstance(value, str):
+        value = value.strip()
+        if '%' in value:
+            return float(value.strip('%')) / 100
+        elif 'mg/dL' in value:
+            return float(value.split()[0])
+    try:
+        return float(value)
+    except ValueError:
+        return value  # 如果無法轉換，則返回原始值
+
 st.title("CGM 數據分析")
 
-# 在側邊欄中設置 API 金鑰輸入
+# 在側邊欄中置 API 金鑰輸入
 st.sidebar.title("設定")
 openai_api_key = st.sidebar.text_input(
     label="請輸入您的 OpenAI API 金鑰：",
@@ -63,46 +86,76 @@ if uploaded_file:
         cgm_df = read_cgm_file(sensor_glucose_file)
         meal_data, insulin_data = extract_event_data([event_file])
         
+        # 提取胰島素數據
+        insulin_data = extract_insulin_data(event_file)
+        
         if not cgm_df.empty:
             st.header("血糖數據分析")
-            st.success(f"成功讀取 CGM 數據！共 {len(cgm_df)} 條記錄")
-            
             cgm_metrics = calculate_metrics(cgm_df)
             
-            col1, col2, col3 = st.columns(3)
-            for i, (key, value) in enumerate(cgm_metrics.items()):
-                with [col1, col2, col3][i % 3]:
-                    st.metric(label=key, value=value)
+            # 移除調試信息
+            # st.write("Debug: CGM Metrics Keys:", list(cgm_metrics.keys()))
+            # st.write("Debug: Mean Glucose Value:", cgm_metrics.get('Mean Glucose (mg/dL)', 'Not Found'))
             
-            st.subheader("血糖趨勢圖 (AGP)")
-            agp_fig = create_agp(cgm_df)
-            st.pyplot(agp_fig)
+            agp_plot = create_agp(cgm_df)
+            daily_clusters_plot = create_daily_clusters(cgm_df)
             
-            st.subheader("每日血糖分布")
-            clusters_fig = create_daily_clusters(cgm_df)
-            st.pyplot(clusters_fig)
-        else:
-            st.warning("無法從文件中提取有效的 CGM 數據。")
+            st.subheader("血糖數據指標")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            metrics_order = [
+                "VLow (<54 mg/dL)", "Low (54-<70 mg/dL)", "TIR (70-180 mg/dL)",
+                "High (>180-250 mg/dL)", "VHigh (>250 mg/dL)", "CV",
+                "Mean Glucose (mg/dL)", "GMI", "GRI"
+            ]
+            
+            for i, metric in enumerate(metrics_order):
+                with [col1, col2, col3, col4][i % 4]:
+                    value = cgm_metrics.get(metric, "N/A")
+                    if isinstance(value, (float, np.float64)):
+                        if metric == "Mean Glucose (mg/dL)":
+                            st.metric(label=metric, value=f"{value:.1f}")
+                        elif metric in ["VLow (<54 mg/dL)", "Low (54-<70 mg/dL)", "TIR (70-180 mg/dL)", "High (>180-250 mg/dL)", "VHigh (>250 mg/dL)"]:
+                            st.metric(label=metric, value=f"{value:.2%}")
+                        else:
+                            st.metric(label=metric, value=f"{value:.2f}")
+                    else:
+                        st.metric(label=metric, value=value)
+            
+            st.subheader("AGP 圖")
+            st.pyplot(agp_plot)
+            
+            st.subheader("每日血糖聚類圖")
+            st.pyplot(daily_clusters_plot)
         
-        if not insulin_data.empty:
+        if insulin_data is not None:
             st.header("胰島素數據分析")
-            st.success(f"成功提取胰島素數據！共 {len(insulin_data)} 條記錄")
             
-            st.subheader("胰島素數據預覽")
-            st.dataframe(insulin_data.head())
-            
-            insulin_metrics, insulin_daily_stats = analyze_insulin(insulin_data)
-            
-            st.subheader("胰島素分析結果")
-            col1, col2 = st.columns(2)
-            for i, (key, value) in enumerate(insulin_metrics.items()):
-                with col1 if i % 2 == 0 else col2:
-                    st.metric(label=key, value=f"{value:.2f}")
-            
-            st.subheader("每日胰島素注射統計")
-            st.dataframe(insulin_daily_stats)
+            if not insulin_info:
+                st.warning("未提供胰島素信息。請在側邊欄填寫胰島素信息。")
+            else:
+                # 分析胰島素數據
+                analyzed_insulin_data = analyze_insulin(insulin_data, insulin_info)
+                
+                # 繪製胰島素數據圖表
+                fig = plot_insulin_data(analyzed_insulin_data, insulin_info)
+                st.pyplot(fig)
+                
+                # 顯示統計信息
+                st.subheader("胰島素注射統計")
+                insulin_stats = get_insulin_statistics(analyzed_insulin_data)
+                cols = st.columns(3)
+                
+                for i, (insulin_type, data) in enumerate(insulin_stats.items()):
+                    with cols[i]:
+                        st.write(insulin_type)
+                        st.write(f"平均劑量: {data['平均劑量']:.2f} 單位")
+                        st.write(f"注射次數: {data['注射次數']}")
+
+                # 使用 insulin_stats 替代 insulin_metrics
+                deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
         else:
-            st.warning("無法從文件中提取有效的胰島素數據。")
+            st.warning("無法提取有效的胰島素數據。")
         
         if not meal_data.empty:
             st.header("餐食數據分析")
@@ -116,19 +169,26 @@ if uploaded_file:
             st.subheader("餐食分析結果")
             col1, col2 = st.columns(2)
             for i, (key, value) in enumerate(meal_metrics.items()):
-                with col1 if i % 2 == 0 else col2:
-                    st.metric(label=key, value=f"{value:.2f}")
+                if isinstance(value, (float, np.float64)):
+                    value_float = value
+                elif isinstance(value, str):
+                    value_float = float(value.strip('%')) / 100 if '%' in value else float(value)
+                else:
+                    st.error(f"Unexpected value type: {type(value)}")
+                    value_float = 0  # 或者其他適當的默認值
+                
+                st.metric(label=key, value=f"{value_float:.2f}")
             
             st.subheader("每日餐食統計")
             st.dataframe(meal_daily_stats)
         else:
             st.warning("無法從文件中提取有效的餐食數據。")
         
-        if not cgm_df.empty and not insulin_data.empty:
+        if not cgm_df.empty and insulin_data is not None:
             st.header("深度分析和總結")
             if openai_api_key:
                 with st.spinner("正在進行深度分析，請稍候..."):
-                    deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_metrics, openai_api_key)
+                    deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
                 st.markdown(deep_analysis_result)
             else:
                 st.warning("請在側邊欄輸入您的 OpenAI API 金鑰以進行深度分析。")
