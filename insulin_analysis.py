@@ -78,13 +78,19 @@ def analyze_insulin(insulin_data, insulin_info):
 def plot_insulin_data(analyzed_data, insulin_info):
     fig, ax = plt.subplots(figsize=(12, 6))
     
-    for insulin_type in ['長效', '短效/速效', '未知']:
-        type_data = analyzed_data[analyzed_data['Type'] == insulin_type]
-        ax.scatter(type_data['Hour'], type_data['Dose'], label=insulin_type)
+    insulin_types = {
+        '長效': 'Long-acting',
+        '短效/速效': 'Short/Rapid-acting',
+        '未知': 'Unknown'
+    }
     
-    ax.set_xlabel('時間 (小時)')
-    ax.set_ylabel('劑量 (單位)')
-    ax.set_title('胰島素注射時間和劑量分布')
+    for insulin_type, english_type in insulin_types.items():
+        type_data = analyzed_data[analyzed_data['Type'] == insulin_type]
+        ax.scatter(type_data['Hour'], type_data['Dose'], label=english_type)
+    
+    ax.set_xlabel('Time (Hours)')
+    ax.set_ylabel('Dose (Units)')
+    ax.set_title('Insulin Injection Time and Dose Distribution')
     ax.legend()
     
     return fig

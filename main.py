@@ -129,10 +129,10 @@ if uploaded_file:
             st.pyplot(daily_clusters_plot)
         
         if insulin_data is not None:
-            st.header("胰島素數據分析")
+            st.header("Insulin Data Analysis")  # 更改為英文標題
             
             if not insulin_info:
-                st.warning("未提供胰島素信息。請在側邊欄填寫胰島素信息。")
+                st.warning("No insulin information provided. Please fill in the insulin information in the sidebar.")
             else:
                 # 分析胰島素數據
                 analyzed_insulin_data = analyze_insulin(insulin_data, insulin_info)
@@ -142,15 +142,15 @@ if uploaded_file:
                 st.pyplot(fig)
                 
                 # 顯示統計信息
-                st.subheader("胰島素注射統計")
+                st.subheader("Insulin Injection Statistics")  # 更改為英文副標題
                 insulin_stats = get_insulin_statistics(analyzed_insulin_data)
                 cols = st.columns(3)
                 
                 for i, (insulin_type, data) in enumerate(insulin_stats.items()):
                     with cols[i]:
                         st.write(insulin_type)
-                        st.write(f"平均劑量: {data['平均劑量']:.2f} 單位")
-                        st.write(f"注射次數: {data['注射次數']}")
+                        st.write(f"Average Dose: {data['平均劑量']:.2f} units")
+                        st.write(f"Injection Count: {data['注射次數']}")
 
                 # 使用 insulin_stats 替代 insulin_metrics
                 deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
