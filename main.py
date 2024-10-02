@@ -5,6 +5,7 @@ from event_analysis import extract_event_data, analyze_insulin, analyze_meal
 from glucose_analysis import calculate_metrics, create_agp, create_daily_clusters
 from deep_analysis import perform_deep_analysis
 from split_csv import split_csv
+from insulin_input import get_insulin_info  # 導入 get_insulin_info 函數
 
 def read_cgm_file(file_path):
     if not os.path.exists(file_path):
@@ -43,10 +44,8 @@ openai_api_key = st.sidebar.text_input(
     help="您可以從 https://platform.openai.com/account/api-keys/ 獲取您的 API 金鑰"
 )
 
-if openai_api_key:
-    st.sidebar.success("API 密鑰已輸入")
-else:
-    st.sidebar.warning("請輸入 API 密鑰")
+# 獲取胰島素信息
+insulin_info = get_insulin_info()
 
 uploaded_file = st.file_uploader("請上傳 CGM 數據文件（CSV 或 Excel 格式）", type=["csv", "xlsx", "xls"])
 
@@ -125,7 +124,7 @@ if uploaded_file:
         else:
             st.warning("無法從文件中提取有效的餐食數據。")
         
-        if not cgm_df.empty and not insulin_data.empty and not meal_data.empty:
+        if not cgm_df.empty and not insulin_data.empty:
             st.header("深度分析和總結")
             if openai_api_key:
                 with st.spinner("正在進行深度分析，請稍候..."):
