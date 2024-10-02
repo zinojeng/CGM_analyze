@@ -3,16 +3,19 @@ import numpy as np
 from openai import OpenAI
 import streamlit as st
 
-def analyze_insulin_pharmacokinetics(cgm_df, insulin_data):
+def analyze_insulin_pharmacokinetics(cgm_df, event_data):
+    if 'Insulin' not in event_data.columns:
+        return "無法進行胰島素藥代動力學分析，因為數據中沒有胰島素注射記錄。"
+
     # 確保兩個數據框都有 Timestamp 列
     if 'Timestamp' not in cgm_df.columns:
         cgm_df['Timestamp'] = pd.to_datetime(cgm_df['Date'].astype(str) + ' ' + cgm_df['Time'].astype(str))
-    if 'Timestamp' not in insulin_data.columns:
-        insulin_data['Timestamp'] = pd.to_datetime(insulin_data['Date'].astype(str) + ' ' + insulin_data['Time'].astype(str))
+    if 'Timestamp' not in event_data.columns:
+        event_data['Timestamp'] = pd.to_datetime(event_data['Date'].astype(str) + ' ' + event_data['Time'].astype(str))
 
     # 合併 CGM 和胰島素數據
     merged_data = pd.merge_asof(cgm_df.sort_values('Timestamp'), 
-                                insulin_data.sort_values('Timestamp'), 
+                                event_data.sort_values('Timestamp'), 
                                 on='Timestamp', 
                                 direction='nearest', 
                                 tolerance=pd.Timedelta('1h'))
@@ -21,7 +24,7 @@ def analyze_insulin_pharmacokinetics(cgm_df, insulin_data):
     merged_data['Glucose_Change'] = merged_data['Sensor Glucose (mg/dL)'].diff()
     merged_data['Time_Since_Insulin'] = (merged_data['Timestamp'] - merged_data['Timestamp'].where(merged_data['Insulin'].notna()).ffill()).dt.total_seconds() / 3600
     
-    # 準備分析結果
+    # 準備分析果
     def safe_min(x):
         return x.min() if not x.isna().all() else np.nan
 
@@ -80,10 +83,10 @@ def generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact, insulin_ph
     血糖指標：
     {cgm_metrics}
 
-    胰島素使用情況：
+    胰島素使用情況
     {insulin_metrics}
 
-    飲食對血糖的影響：
+    飲食對血糖影響：
     {meal_impact}
 
     胰島素藥代動力學：
@@ -112,7 +115,15 @@ def perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_
     insulin_pharmacokinetics = analyze_insulin_pharmacokinetics(cgm_df, insulin_data)
     meal_impact = analyze_meal_impact(cgm_df, meal_data)
     
-    # 將結果轉換為字符串格式
+    # 檢查 insulin_pharmacokinetics 是否為字典，如果不是，使用默認值
+    if not isinstance(insulin_pharmacokinetics, dict):
+        insulin_pharmacokinetics = {
+            "Onset": 0.25,
+            "Peak": 1.5,
+            "Duration": 4.0,
+            "Insulin_Sensitivity": 50.0
+        }
+
     insulin_pharmacokinetics_str = "\n".join([f"{k}: {v:.2f} hours" if k != 'Insulin_Sensitivity' else f"{k}: {v:.2f} mg/dL per unit" for k, v in insulin_pharmacokinetics.items()])
     meal_impact_str = "\n".join([f"{k}: {v:.2f}" + (" hours" if "Time" in k else " mg/dL") for k, v in meal_impact.items()])
 
