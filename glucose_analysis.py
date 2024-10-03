@@ -61,27 +61,35 @@ def create_daily_clusters(df):
         'TAR (181-250)': ((x['Sensor Glucose (mg/dL)'] > 180) & (x['Sensor Glucose (mg/dL)'] <= 250)).mean() * 100,
         'TIR (70-180)': ((x['Sensor Glucose (mg/dL)'] >= 70) & (x['Sensor Glucose (mg/dL)'] <= 180)).mean() * 100,
         'TBR (54-69)': ((x['Sensor Glucose (mg/dL)'] >= 54) & (x['Sensor Glucose (mg/dL)'] < 70)).mean() * 100,
-        'Time < 50': (x['Sensor Glucose (mg/dL)'] < 50).mean() * 100
+        'Time < 54': (x['Sensor Glucose (mg/dL)'] < 54).mean() * 100
     }))
     
-    daily_stats = daily_stats[['Time > 250', 'TAR (181-250)', 'TIR (70-180)', 'TBR (54-69)', 'Time < 50']]
+    daily_stats = daily_stats[['Time > 250', 'TAR (181-250)', 'TIR (70-180)', 'TBR (54-69)', 'Time < 54']]
     
     fig, ax = plt.subplots(figsize=(12, 6))
     bottoms = np.zeros(len(daily_stats))
-    colors = ['red', 'orange', 'green', 'yellow', 'blue']
+    
+    # 更新顏色映射，使用較深的綠色
+    colors = {
+        'Time > 250': '#FF9900',    # 橙色
+        'TAR (181-250)': '#FFFF00', # 黃色
+        'TIR (70-180)': '#228B22',  # 較深的綠色
+        'TBR (54-69)': '#FF0000',   # 紅色
+        'Time < 54': '#990000'      # 深紅色
+    }
     
     for column in reversed(daily_stats.columns):
-        ax.bar(daily_stats.index, daily_stats[column], bottom=bottoms, label=column, color=colors[daily_stats.columns.get_loc(column)])
+        ax.bar(daily_stats.index, daily_stats[column], bottom=bottoms, label=column, color=colors[column])
         bottoms += daily_stats[column]
     
-    ax.set_title('Clinically Similar Clusters')
-    ax.set_ylabel('Percentage (%)')
-    ax.set_xlabel('Date')
+    ax.set_title('每日血糖聚類圖', fontsize=16)
+    ax.set_ylabel('百分比 (%)', fontsize=12)
+    ax.set_xlabel('日期', fontsize=12)
     ax.set_ylim(0, 100)
     ax.grid(True, linestyle='--', alpha=0.7)
     
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[::-1], labels[::-1], loc='center left', bbox_to_anchor=(1, 0.5))
+    ax.legend(handles[::-1], labels[::-1], loc='center left', bbox_to_anchor=(1, 0.5), title='血糖範圍')
     
     plt.tight_layout()
     return fig
