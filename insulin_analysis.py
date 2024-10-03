@@ -50,15 +50,27 @@ def extract_insulin_data(file_path):
     return insulin_data
 
 def classify_insulin(hour, dose, insulin_info):
-    long_acting = insulin_info['長效胰島素']['劑量']
-    short_acting = insulin_info['短效/速效胰島素']['劑量']
-    
-    if 6 <= hour < 10 and dose > 20:
-        return '長效'
-    elif dose <= 10:
-        return '短效/速效'
-    else:
-        return '未知'
+    long_acting = insulin_info.get('長效胰島素', [])
+    rapid_acting = insulin_info.get('速效胰島素', [])
+    premixed = insulin_info.get('預混胰島素', [])
+
+    # 檢查劑量是否匹配任何長效胰島素
+    for insulin in long_acting:
+        if insulin in insulin_info and dose in insulin_info[insulin].values():
+            return '長效胰島素'
+
+    # 檢查劑量是否匹配任何速效胰島素
+    for insulin in rapid_acting:
+        if insulin in insulin_info and dose in insulin_info[insulin].values():
+            return '速效胰島素'
+
+    # 檢查劑量是否匹配任何預混胰島素
+    for insulin in premixed:
+        if insulin in insulin_info and dose in insulin_info[insulin].values():
+            return '預混胰島素'
+
+    # 如果沒有匹配，返回 '未知'
+    return '未知'
 
 def analyze_insulin(insulin_data, insulin_info):
     analyzed_data = []
