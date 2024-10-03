@@ -63,7 +63,7 @@ st.sidebar.title("設定")
 openai_api_key = st.sidebar.text_input(
     label="請輸入您的 OpenAI API 金鑰：",
     type='password',
-    placeholder="例如：sk-2twmA88un4...",
+    placeholder="例��：sk-2twmA88un4...",
     help="您可以從 https://platform.openai.com/account/api-keys/ 獲取您的 API 金鑰"
 )
 
@@ -196,6 +196,7 @@ if uploaded_file:
             st.error(f"文件 {uploaded_file.name} 拆分失敗")
 
         # 在這裡，您可以使用 insulin_info 來進行後續的分析
-        st.write("選擇的胰島素及劑量：", insulin_info)
+        # st.write("選擇的胰島素及劑量：", insulin_info)  # 移除或註釋掉這一行
+
 else:
     st.info("請上傳 CGM 數據文件（CSV 或 Excel 格式）。")
