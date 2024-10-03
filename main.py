@@ -63,7 +63,7 @@ st.sidebar.title("設定")
 openai_api_key = st.sidebar.text_input(
     label="請輸入您的 OpenAI API 金鑰：",
     type='password',
-    placeholder="例��：sk-2twmA88un4...",
+    placeholder="例：sk-2twmA88un4...",
     help="您可以從 https://platform.openai.com/account/api-keys/ 獲取您的 API 金鑰"
 )
 
@@ -138,22 +138,48 @@ if uploaded_file:
                 analyzed_insulin_data = analyze_insulin(insulin_data, insulin_info)
                 
                 # 繪製胰島素數據圖表
-                fig = plot_insulin_data(analyzed_insulin_data, insulin_info)
+                fig = plot_insulin_data(analyzed_insulin_data)
                 st.pyplot(fig)
                 
                 # 顯示統計信息
-                st.subheader("胰島素注射統計")  # 更改為英文副標題
+                st.subheader("胰島素注射統計")
                 insulin_stats = get_insulin_statistics(analyzed_insulin_data)
-                cols = st.columns(3)
                 
-                for i, (insulin_type, data) in enumerate(insulin_stats.items()):
-                    with cols[i]:
-                        st.write(insulin_type)
-                        st.write(f"Average Dose: {data['平均劑量']:.2f} units")
-                        st.write(f"Injection Count: {data['注射次數']}")
+                for category in ['長效胰島素', '速效胰島素', '預混胰島素', '未知']:
+                    if category in insulin_stats:
+                        st.write(f"**{category}**")
+                        data = insulin_stats[category]
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("平均劑量", f"{data['平均劑量']} 單位")
+                        with col2:
+                            st.metric("注射次數", data['注射次數'])
+                        st.write(f"劑量範圍: {data['最小劑量']} - {data['最大劑量']} 單位")
+                        
+                        if category != '未知':
+                            # 顯示常見注射時間和對應的平均劑量
+                            if data['常見注射時間']:
+                                st.write("常見注射時間和平均劑量：")
+                                for time, avg_dose, count in data['常見注射時間']:
+                                    st.write(f"  - {time:02d}:00 附近，平均劑量 {avg_dose} 單位 (共 {count} 次)")
+                        else:
+                            # 顯示未知類型的劑量分組
+                            if '劑量分組' in data:
+                                st.write("未分類胰島素注射分組：")
+                                for avg_time, avg_dose, count in data['劑量分組']:
+                                    hour = int(avg_time)
+                                    minute = int((avg_time - hour) * 60)
+                                    st.write(f"  - {hour:02d}:{minute:02d} 附近，平均劑量 {avg_dose} 單位 (共 {count} 次)")
+                        
+                        # 顯示每種胰島素的詳細信息
+                        for insulin_name, insulin_data in data.items():
+                            if isinstance(insulin_data, dict) and insulin_name not in ['常見注射時間', '劑量分組']:
+                                st.write(f"  - {insulin_name}: 平均劑量 {insulin_data['平均劑量']} 單位, 注射次數 {insulin_data['注射次數']}")
+                        
+                        st.write("---")
 
-                # 使用 insulin_stats 替代 insulin_metrics
-                deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
+                if '未知' in insulin_stats:
+                    st.warning("有未分類的胰島素注射記錄。這些記錄已根據劑量和時間進行了分組。請檢查這些分組是否符合您的實際使用情況，並考慮更新您的胰島素輸入設置。")
             else:
                 st.warning("無法提取有效的胰島素數據。")
             
@@ -188,6 +214,9 @@ if uploaded_file:
                 st.header("深度分析和總結")
                 if openai_api_key:
                     with st.spinner("正在進行深度分析，請稍候..."):
+                        # 確保 insulin_data 是 DataFrame
+                        if not isinstance(insulin_data, pd.DataFrame):
+                            insulin_data = pd.DataFrame(insulin_data)
                         deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
                     st.markdown(deep_analysis_result)
                 else:
