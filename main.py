@@ -11,6 +11,7 @@ from deep_analysis import perform_deep_analysis
 from split_csv import split_csv
 from insulin_input import get_insulin_info
 from insulin_analysis import extract_insulin_data, analyze_insulin, plot_insulin_data, get_insulin_statistics
+from gri_rag import GRIAnalyzer, ReferenceDatabase, perform_gri_rag_analysis
 
 # 設置中文顯示
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']  # 首選 Arial Unicode MS，備選 SimHei
@@ -26,7 +27,7 @@ def read_cgm_file(file_path):
     try:
         df = pd.read_csv(file_path)
     except Exception as e:
-        st.error(f"讀取文件時發生錯誤：{str(e)}")
+        st.error(f"取文件時發生錯誤：{str(e)}")
         return pd.DataFrame()
     
     required_columns = ['Date', 'Time', 'Sensor Glucose (mg/dL)']
@@ -201,7 +202,7 @@ if uploaded_file:
                         value_float = float(value.strip('%')) / 100 if '%' in value else float(value)
                     else:
                         st.error(f"Unexpected value type: {type(value)}")
-                        value_float = 0  # 或者其他適當的默認值
+                        value_float = 0  # 或者其他適當的默認
                     
                     st.metric(label=key, value=f"{value_float:.2f}")
                 
@@ -217,8 +218,29 @@ if uploaded_file:
                         # 確保 insulin_data 是 DataFrame
                         if not isinstance(insulin_data, pd.DataFrame):
                             insulin_data = pd.DataFrame(insulin_data)
+                        
+                        # 執行深度分析
                         deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
-                    st.markdown(deep_analysis_result)
+
+
+                        st.subheader("GRI 分析")
+                        # 在調用 perform_gri_rag_analysis 之前，創建 ReferenceDatabase 實例
+                        reference_db = ReferenceDatabase("references_articles/RAG")  # 請確保這個路徑是正確的
+
+                        # 然後使用這個實例調用函數
+                        gri_analysis_result = perform_gri_rag_analysis(cgm_df, reference_db)
+
+                        # 顯示結果
+                        st.markdown(gri_analysis_result)
+
+                        st.subheader("胰島素藥代動力學")
+                        st.write(deep_analysis_result["insulin_pharmacokinetics"])
+
+                        st.subheader("飲食對血糖的影響")
+                        st.write(deep_analysis_result["meal_impact"])
+
+                        st.subheader("綜合分析")
+                        st.write(deep_analysis_result["gpt4_analysis"])
                 else:
                     st.warning("請在側邊欄輸入您的 OpenAI API 金鑰以進行深度分析。")
         else:

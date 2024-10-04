@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
-from openai import OpenAI
-import streamlit as st
+import openai  # 修改這行
+from gri_rag import perform_gri_rag_analysis, ReferenceDatabase
 
 def analyze_insulin_pharmacokinetics(cgm_df, insulin_data):
     if not isinstance(insulin_data, pd.DataFrame):
@@ -47,6 +47,9 @@ def analyze_insulin_pharmacokinetics(cgm_df, insulin_data):
     return mean_results
 
 def analyze_meal_impact(cgm_df, meal_data):
+    if not isinstance(meal_data, pd.DataFrame) or meal_data.empty:
+        return "無法分析飲食對血糖的影響，因為沒有有效的飲食數據。"
+
     # 確保兩個數據框都有 Timestamp 列
     if 'Timestamp' not in cgm_df.columns:
         cgm_df['Timestamp'] = pd.to_datetime(cgm_df['Date'].astype(str) + ' ' + cgm_df['Time'].astype(str))
@@ -80,11 +83,11 @@ def analyze_meal_impact(cgm_df, meal_data):
     return mean_results
 
 def generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact, insulin_pharmacokinetics, api_key):
-    # 在這裡初始化 OpenAI 客戶端
-    client = OpenAI(api_key=api_key)
+    # 設置 API 密鑰
+    openai.api_key = api_key
     
     prompt = f"""
-    請根據以下數據進行深入的血糖管理分析：
+    請根據以下數據進行深入的血糖管理分析，請使用繁體中文 zh-tw 回答：
 
     血糖指標：
     {cgm_metrics}
@@ -107,7 +110,7 @@ def generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact, insulin_ph
     請以專業醫療顧問的角度給出分析和建議。
     """
 
-    response = client.chat.completions.create(
+    response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a endocrinologic professor and professional medical advisor specializing in diabetes management. give me clinically relevant insights and professional recommendations based on the following data as detal as you can:"},
@@ -115,24 +118,38 @@ def generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact, insulin_ph
         ]
     )
 
-    return response.choices[0].message.content
+    return response.choices[0].message['content']
 
-def perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_metrics, api_key):
+def perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, api_key):
+    # 使用 RAG 系統進行 GRI 分析
+    reference_db = ReferenceDatabase("references_articles/RAG")
+    gri_analysis_result = perform_gri_rag_analysis(cgm_df, reference_db)
+    
     insulin_pharmacokinetics = analyze_insulin_pharmacokinetics(cgm_df, insulin_data)
     meal_impact = analyze_meal_impact(cgm_df, meal_data)
     
-    # 檢查 insulin_pharmacokinetics 是否為字典，如果不是，使用默認值
-    if not isinstance(insulin_pharmacokinetics, dict):
-        insulin_pharmacokinetics = {
-            "Onset": 0.25,
-            "Peak": 1.5,
-            "Duration": 4.0,
-            "Insulin_Sensitivity": 50.0
-        }
+    # 檢查 insulin_pharmacokinetics 的類型並相應處理
+    if isinstance(insulin_pharmacokinetics, dict):
+        insulin_pharmacokinetics_str = "\n".join([f"{k}: {v:.2f}" + (" hours" if k != 'Insulin_Sensitivity' else " mg/dL per unit") for k, v in insulin_pharmacokinetics.items()])
+    elif isinstance(insulin_pharmacokinetics, str):
+        insulin_pharmacokinetics_str = insulin_pharmacokinetics
+    else:
+        insulin_pharmacokinetics_str = "無法計算胰島素藥代動力學數據"
 
-    insulin_pharmacokinetics_str = "\n".join([f"{k}: {v:.2f} hours" if k != 'Insulin_Sensitivity' else f"{k}: {v:.2f} mg/dL per unit" for k, v in insulin_pharmacokinetics.items()])
-    meal_impact_str = "\n".join([f"{k}: {v:.2f}" + (" hours" if "Time" in k else " mg/dL") for k, v in meal_impact.items()])
+    # 檢查 meal_impact 的類型並相應處理
+    if isinstance(meal_impact, dict):
+        meal_impact_str = "\n".join([f"{k}: {v:.2f}" + (" hours" if "Time" in k else " mg/dL") for k, v in meal_impact.items()])
+    elif isinstance(meal_impact, str):
+        meal_impact_str = meal_impact
+    else:
+        meal_impact_str = "無法計算飲食對血糖的影響數據"
 
-    gpt4_analysis = generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact_str, insulin_pharmacokinetics_str, api_key)
+    gpt4_analysis = generate_gpt4_analysis(cgm_metrics, insulin_stats, meal_impact_str, insulin_pharmacokinetics_str, api_key)
     
-    return gpt4_analysis
+    # 返回所有分析結果
+    return {
+        "gri_analysis": gri_analysis_result,
+        "insulin_pharmacokinetics": insulin_pharmacokinetics_str,
+        "meal_impact": meal_impact_str,
+        "gpt4_analysis": gpt4_analysis
+    }
