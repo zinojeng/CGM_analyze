@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import PyPDF2
 from sentence_transformers import SentenceTransformer
-import faiss
+from annoy import AnnoyIndex
 from openai import OpenAI
 
 class ReferenceDatabase:
@@ -28,13 +28,15 @@ class ReferenceDatabase:
 
     def _create_index(self):
         embeddings = self.model.encode(self.documents)
-        self.index = faiss.IndexFlatL2(embeddings.shape[1])
-        self.index.add(embeddings)
+        self.index = AnnoyIndex(embeddings.shape[1], 'angular')
+        for i, embedding in enumerate(embeddings):
+            self.index.add_item(i, embedding)
+        self.index.build(10)  # 使用 10 棵樹來構建索引
 
     def search(self, query, k=3):
-        query_vector = self.model.encode([query])
-        distances, indices = self.index.search(query_vector, k)
-        return [self.documents[idx] for idx in indices[0]]
+        query_vector = self.model.encode([query])[0]
+        indices = self.index.get_nns_by_vector(query_vector, k, include_distances=False)
+        return [self.documents[idx] for idx in indices]
 
 class GRIAnalyzer:
     def __init__(self, cgm_df, reference_db):
