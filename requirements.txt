@@ -1,6 +1,6 @@
 openai
 pandas
-numpy
+numpy==1.23.5
 matplotlib
 seaborn
 scikit-learn
