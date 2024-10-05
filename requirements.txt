@@ -10,7 +10,7 @@ streamlit>=1.20.0
 PyMuPDF
 PyPDF2
 sentence-transformers
-faiss-cpu==1.7.4
+faiss-cpu
 openpyxl
 python-dotenv
 statsmodels
