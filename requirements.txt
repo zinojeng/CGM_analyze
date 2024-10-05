@@ -18,3 +18,4 @@ streamlit-extras
 pandas-ta
 python-dateutil
 https://github.com/pypi-wheels/pypi-wheels/releases/download/faiss-cpu-1.7.4/faiss_cpu-1.7.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+scann-cpu
