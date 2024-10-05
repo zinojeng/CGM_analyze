@@ -1,6 +1,7 @@
 openai
 pandas
 numpy==1.23.5
+setuptools
 matplotlib
 seaborn
 scikit-learn
@@ -9,7 +10,7 @@ streamlit
 PyMuPDF
 PyPDF2
 sentence-transformers
-faiss-cpu
+faiss-cpu==1.7.4
 openpyxl
 python-dotenv
 statsmodels
