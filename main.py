@@ -12,6 +12,7 @@ from split_csv import split_csv
 from insulin_input import get_insulin_info
 from insulin_analysis import extract_insulin_data, analyze_insulin, plot_insulin_data, get_insulin_statistics
 from gri_rag import GRIAnalyzer, ReferenceDatabase, perform_gri_rag_analysis
+from gri_plotting import plot_gri
 
 # 設置中文顯示
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']  # 首選 Arial Unicode MS，備選 SimHei
@@ -27,7 +28,7 @@ def read_cgm_file(file_path):
     try:
         df = pd.read_csv(file_path)
     except Exception as e:
-        st.error(f"取文件時發生錯誤：{str(e)}")
+        st.error(f"讀取文件時發生錯誤：{str(e)}")
         return pd.DataFrame()
     
     required_columns = ['Date', 'Time', 'Sensor Glucose (mg/dL)']
@@ -215,34 +216,24 @@ if uploaded_file:
                 st.header("深度分析和總結")
                 if openai_api_key:
                     with st.spinner("正在進行深度分析，請稍候..."):
-                        # 確保 insulin_data 是 DataFrame
-                        if not isinstance(insulin_data, pd.DataFrame):
-                            insulin_data = pd.DataFrame(insulin_data)
-                        
-                        # 執行深度分析
                         deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
-
-
-                        st.subheader("GRI 分析")
-                        # 在調用 perform_gri_rag_analysis 之前，創建 ReferenceDatabase 實例
-                        reference_db = ReferenceDatabase("references_articles/RAG")  # 請確保這個路徑是正確的
-
-                        # 然後使用這個實例調用函數
-                        gri_analysis_result = perform_gri_rag_analysis(cgm_df, reference_db)
-
-                        # 顯示結果
-                        st.markdown(gri_analysis_result)
-
-                        st.subheader("胰島素藥代動力學")
-                        st.write(deep_analysis_result["insulin_pharmacokinetics"])
-
-                        st.subheader("飲食對血糖的影響")
-                        st.write(deep_analysis_result["meal_impact"])
-
-                        st.subheader("綜合分析")
-                        st.write(deep_analysis_result["gpt4_analysis"])
+                        
+                        st.header("深度分析結果")
+                        
+                        # 顯示 GRI 分析圖表
+                        st.subheader("GRI 分析圖表")
+                        gri_plot = plot_gri(cgm_df)
+                        st.plotly_chart(gri_plot)
+                        
+                        # 顯示 GRI RAG 分析
+                        st.subheader("GRI RAG 分析")
+                        st.write(deep_analysis_result["GRI RAG Analysis"])
+                        
+                        # 顯示綜合 GPT-4 分析
+                        st.subheader("綜合 GPT-4 分析")
+                        st.write(deep_analysis_result["Overall GPT-4 Analysis"])
                 else:
-                    st.warning("請在側邊欄輸入您的 OpenAI API 金鑰以進行深度分析。")
+                    st.warning("請輸入 OpenAI API 金鑰以進行深度分析。")
         else:
             st.error(f"文件 {uploaded_file.name} 拆分失敗")
 

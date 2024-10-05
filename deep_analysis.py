@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
-import openai  # 修改這行
-from gri_rag import perform_gri_rag_analysis, ReferenceDatabase
+from openai import OpenAI  # 修改這行
+from gri_rag import GRIAnalyzer, perform_gri_rag_analysis, ReferenceDatabase
+from gri_plotting import plot_gri  # 假設我們將獨立的繪圖函數放在 gri_plotting.py 中
+import os
 
 def analyze_insulin_pharmacokinetics(cgm_df, insulin_data):
     if not isinstance(insulin_data, pd.DataFrame):
@@ -26,7 +28,7 @@ def analyze_insulin_pharmacokinetics(cgm_df, insulin_data):
                                 direction='nearest', 
                                 tolerance=pd.Timedelta('1h'))
     
-    # 計算胰島素作用時間、峰值時間和持續時間
+    # 計算胰島素作用時間、峰值間和持續時間
     merged_data['Glucose_Change'] = merged_data['Sensor Glucose (mg/dL)'].diff()
     merged_data['Time_Since_Insulin'] = (merged_data['Timestamp'] - merged_data['Timestamp'].where(merged_data['Insulin'].notna()).ffill()).dt.total_seconds() / 3600
     
@@ -82,74 +84,65 @@ def analyze_meal_impact(cgm_df, meal_data):
 
     return mean_results
 
-def generate_gpt4_analysis(cgm_metrics, insulin_metrics, meal_impact, insulin_pharmacokinetics, api_key):
-    # 設置 API 密鑰
-    openai.api_key = api_key
+def generate_gpt4_analysis(cgm_metrics, insulin_stats, openai_api_key):
+    client = OpenAI(api_key=openai_api_key)
     
     prompt = f"""
-    請根據以下數據進行深入的血糖管理分析，請使用繁體中文 zh-tw 回答：
+    基於以下血糖監測（CGM）和胰島素數據的分析結果，請提供深入的見解和建議：
 
-    血糖指標：
+    CGM 指標：
     {cgm_metrics}
 
-    胰島素使用情況
-    {insulin_metrics}
-
-    飲食對血糖影響：
-    {meal_impact}
-
-    胰島素藥代動力學：
-    {insulin_pharmacokinetics}
+    # 胰島素統計：
+    # {insulin_stats}
 
     請提供以下方面的分析：
-    1. 整體血糖控制情況評估
-    2. 胰島素使用效果分析
-    3. 飲食對血糖的影響評估
-    4. 改善建議
+    1. 血糖控制的整體評估
+    2. 胰島素使用的效果和建議
 
-    請以專業醫療顧問的角度給出分析和建議。
+    請用中文（繁體）回答，並確保回答準確、專業且易於理解。
     """
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are a endocrinologic professor and professional medical advisor specializing in diabetes management. give me clinically relevant insights and professional recommendations based on the following data as detal as you can:"},
+            {"role": "system", "content": "You are a diabetes management expert providing analysis based on CGM and insulin data."},
             {"role": "user", "content": prompt}
-        ]
+        ],
+        max_tokens=1000,
+        n=1,
+        stop=None,
+        temperature=0.7
     )
 
-    return response.choices[0].message['content']
+    return response.choices[0].message.content
 
-def perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, api_key):
-    # 使用 RAG 系統進行 GRI 分析
-    reference_db = ReferenceDatabase("references_articles/RAG")
-    gri_analysis_result = perform_gri_rag_analysis(cgm_df, reference_db)
+def perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key):
+    # 使用相對路徑指向您的 PDF 文件目錄
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    pdf_directory = os.path.join(current_dir, 'references_articles', 'RAG')
     
-    insulin_pharmacokinetics = analyze_insulin_pharmacokinetics(cgm_df, insulin_data)
-    meal_impact = analyze_meal_impact(cgm_df, meal_data)
+    # 創建 ReferenceDatabase 實例
+    reference_db = ReferenceDatabase(pdf_directory)
     
-    # 檢查 insulin_pharmacokinetics 的類型並相應處理
-    if isinstance(insulin_pharmacokinetics, dict):
-        insulin_pharmacokinetics_str = "\n".join([f"{k}: {v:.2f}" + (" hours" if k != 'Insulin_Sensitivity' else " mg/dL per unit") for k, v in insulin_pharmacokinetics.items()])
-    elif isinstance(insulin_pharmacokinetics, str):
-        insulin_pharmacokinetics_str = insulin_pharmacokinetics
-    else:
-        insulin_pharmacokinetics_str = "無法計算胰島素藥代動力學數據"
-
-    # 檢查 meal_impact 的類型並相應處理
-    if isinstance(meal_impact, dict):
-        meal_impact_str = "\n".join([f"{k}: {v:.2f}" + (" hours" if "Time" in k else " mg/dL") for k, v in meal_impact.items()])
-    elif isinstance(meal_impact, str):
-        meal_impact_str = meal_impact
-    else:
-        meal_impact_str = "無法計算飲食對血糖的影響數據"
-
-    gpt4_analysis = generate_gpt4_analysis(cgm_metrics, insulin_stats, meal_impact_str, insulin_pharmacokinetics_str, api_key)
+    gri_analyzer = GRIAnalyzer(cgm_df, reference_db)
+    gri_result = gri_analyzer.analyze()
     
-    # 返回所有分析結果
-    return {
-        "gri_analysis": gri_analysis_result,
-        "insulin_pharmacokinetics": insulin_pharmacokinetics_str,
-        "meal_impact": meal_impact_str,
-        "gpt4_analysis": gpt4_analysis
+    # 使用獨立的繪圖函數來生成 GRI 圖表
+    gri_plot = plot_gri(cgm_df)
+    
+    # 執行 GRI RAG 分析
+    gri_rag_analysis = perform_gri_rag_analysis(cgm_df, reference_db, openai_api_key)
+    
+    # 生成綜合 GPT-4 分析
+    overall_gpt4_analysis = generate_gpt4_analysis(cgm_metrics, insulin_stats, openai_api_key)
+    
+    # 組合深度分析結果
+    deep_analysis_result = {
+        "GRI Analysis": gri_result,
+        "GRI Plot": gri_plot,
+        "GRI RAG Analysis": gri_rag_analysis,
+        "Overall GPT-4 Analysis": overall_gpt4_analysis
     }
+    
+    return deep_analysis_result

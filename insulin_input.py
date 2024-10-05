@@ -6,7 +6,7 @@ def get_insulin_info():
     
     insulin_types = {
         "長效胰島素": ["Lantus", "Levemir", "Toujeo", "Tresiba"],
-        "速效胰島素": ["Humalog", "NovoRapid", "Apidra", "Fiasp"],
+        "速效胰島素": ["Humalog", "NovoRapid", "Apidra", "Lispro"],
         "預混胰島素": ["Novomix 30", "Humalog Mix 25", "Humalog Mix 50", "Ryzodeg 30"]
     }
 
