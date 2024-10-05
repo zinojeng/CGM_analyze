@@ -16,5 +16,4 @@ statsmodels
 streamlit-extras
 pandas-ta
 python-dateutil
-scann-cpu
 annoy==1.17.3
