@@ -31,7 +31,15 @@ def calculate_metrics(cgm_df):
     gri = np.log(glucose_values / 100) ** 2
     metrics['GRI'] = gri.mean() * 100
 
+    # Calculate MAGE
+    metrics['MAGE'] = calculate_mage(glucose_values)
+
     return metrics
+
+def calculate_mage(glucose_values, threshold=1):
+    differences = np.abs(np.diff(glucose_values))
+    significant_changes = differences[differences > threshold * glucose_values.std()]
+    return np.mean(significant_changes)
 
 def create_agp(df):
     df['Time'] = df['Timestamp'].dt.strftime('%H:%M')
@@ -82,14 +90,48 @@ def create_daily_clusters(df):
         ax.bar(daily_stats.index, daily_stats[column], bottom=bottoms, label=column, color=colors[column])
         bottoms += daily_stats[column]
     
-    ax.set_title('每日血糖聚類圖', fontsize=16)
-    ax.set_ylabel('百分比 (%)', fontsize=12)
-    ax.set_xlabel('日期', fontsize=12)
+    ax.set_title('Daily Glucose Cluster Chart', fontsize=16)
+    ax.set_ylabel('Percentage (%)', fontsize=12)
+    ax.set_xlabel('Date', fontsize=12)
     ax.set_ylim(0, 100)
     ax.grid(True, linestyle='--', alpha=0.7)
     
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[::-1], labels[::-1], loc='center left', bbox_to_anchor=(1, 0.5), title='血糖範圍')
+    ax.legend(handles[::-1], labels[::-1], loc='center left', bbox_to_anchor=(1, 0.5), title='Glucose Range')
     
     plt.tight_layout()
     return fig
+
+def analyze_hypoglycemia(cgm_df):
+    low_glucose = cgm_df[cgm_df['Sensor Glucose (mg/dL)'] < 70]
+    very_low_glucose = cgm_df[cgm_df['Sensor Glucose (mg/dL)'] < 54]
+    
+    low_events = low_glucose.groupby(low_glucose['Timestamp'].dt.date).size()
+    very_low_events = very_low_glucose.groupby(very_low_glucose['Timestamp'].dt.date).size()
+    
+    low_times = low_glucose.groupby(low_glucose['Timestamp'].dt.hour).size()
+    very_low_times = very_low_glucose.groupby(very_low_glucose['Timestamp'].dt.hour).size()
+    
+    return {
+        'low_events': low_events,
+        'very_low_events': very_low_events,
+        'low_times': low_times,
+        'very_low_times': very_low_times
+    }
+
+def analyze_hyperglycemia(cgm_df):
+    high_glucose = cgm_df[cgm_df['Sensor Glucose (mg/dL)'] > 180]
+    very_high_glucose = cgm_df[cgm_df['Sensor Glucose (mg/dL)'] > 250]
+    
+    high_events = high_glucose.groupby(high_glucose['Timestamp'].dt.date).size()
+    very_high_events = very_high_glucose.groupby(very_high_glucose['Timestamp'].dt.date).size()
+    
+    high_times = high_glucose.groupby(high_glucose['Timestamp'].dt.hour).size()
+    very_high_times = very_high_glucose.groupby(very_high_glucose['Timestamp'].dt.hour).size()
+    
+    return {
+        'high_events': high_events,
+        'very_high_events': very_high_events,
+        'high_times': high_times,
+        'very_high_times': very_high_times
+    }

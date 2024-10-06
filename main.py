@@ -13,6 +13,7 @@ from insulin_input import get_insulin_info
 from insulin_analysis import extract_insulin_data, analyze_insulin, plot_insulin_data, get_insulin_statistics
 from gri_rag import GRIAnalyzer, ReferenceDatabase, perform_gri_rag_analysis
 from gri_plotting import plot_gri
+from agp_variability import agp_variability
 
 # 設置中文顯示
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']  # 首選 Arial Unicode MS，備選 SimHei
@@ -129,11 +130,11 @@ if uploaded_file:
                         else:
                             st.metric(label=metric, value=value)
                 
-                st.subheader("AGP 圖")
-                st.pyplot(agp_plot)
+                # st.subheader("AGP 圖")
+                # st.pyplot(agp_plot)
                 
-                st.subheader("每日血糖聚類圖")
-                st.pyplot(daily_clusters_plot)
+                # st.subheader("每日血糖聚類圖")
+                # st.pyplot(daily_clusters_plot)
             
             if insulin_data is not None:
                 st.header("胰島素數據分析")
@@ -218,7 +219,23 @@ if uploaded_file:
                     with st.spinner("正在進行深度分析，請稍候..."):
                         deep_analysis_result = perform_deep_analysis(cgm_df, insulin_data, meal_data, cgm_metrics, insulin_stats, openai_api_key)
                         
-                        st.header("深度分析結果")
+                        
+                        
+                        # 新增: AGP 變異性分析
+                        st.subheader("AGP 分析")
+                        if openai_api_key:
+                            agp_analysis, hypo_hyper_analysis, sd, cv, mage = agp_variability(cgm_df, openai_api_key)
+                            
+                            # 顯示 AGP 圖
+                            st.pyplot(agp_plot)
+                            st.subheader("每日血糖聚類圖")
+                            st.pyplot(daily_clusters_plot)
+                            
+                            # 顯示 AGP 分析結果
+                            st.write("AGP 分析:", agp_analysis)
+                            st.write("低血糖和高血糖分析:", hypo_hyper_analysis)
+                        else:
+                            st.warning("請輸入 OpenAI API 金鑰以進行 AGP 變異性分析。")
                         
                         # 顯示 GRI 分析圖表
                         st.subheader("GRI 分析圖表")
@@ -228,7 +245,7 @@ if uploaded_file:
                         # 顯示 GRI RAG 分析
                         st.subheader("GRI RAG 分析")
                         st.write(deep_analysis_result["GRI RAG Analysis"])
-                        
+
                         # 顯示綜合 GPT-4 分析
                         st.subheader("綜合 GPT-4 分析")
                         st.write(deep_analysis_result["Overall GPT-4 Analysis"])
