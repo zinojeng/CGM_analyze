@@ -1,20 +1,54 @@
 import os
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 import PyPDF2
 from sentence_transformers import SentenceTransformer
 from annoy import AnnoyIndex
-from openai import OpenAI
+
+from llm_utils import DEFAULT_FALLBACK_MODELS, LLMCallResult, request_llm_text
+
+
+@dataclass
+class GRIRAGResult:
+    content: str
+    notice: str | None = None
+
+
+def _format_gri_fallback_notice(primary_model: str, result: LLMCallResult) -> str:
+    failure_reason = result.failures[0][1] if result.failures else "未知錯誤"
+    return (
+        f"[注意] 主模型 {primary_model} 調用失敗：{failure_reason}\n"
+        f"已自動改用 {result.model_used}."
+    )
+
+
+def _strip_notice_prefix(text: str, notice: str | None) -> str:
+    if not text or not notice:
+        return text
+    cleaned_notice = notice.strip()
+    if not cleaned_notice:
+        return text
+    if text.startswith(cleaned_notice):
+        text = text[len(cleaned_notice):].lstrip()
+    return text
+
 
 class ReferenceDatabase:
     def __init__(self, directory_path):
         self.directory_path = directory_path
         self.file_path = os.path.join(directory_path, "Glycemia Risk Index.pdf")
         self.extracted_text = ""
-        self._extract_text_from_pdf()
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
-        self.documents = self._split_text_into_chunks()
-        self._create_index()
+        try:
+            self._extract_text_from_pdf()
+            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            self.documents = self._split_text_into_chunks()
+            self._create_index()
+        except FileNotFoundError:
+            print(f"Warning: Reference file not found at {self.file_path}")
+            self.documents = []
+            self.model = None
 
     def _extract_text_from_pdf(self):
         with open(self.file_path, 'rb') as file:
@@ -31,15 +65,18 @@ class ReferenceDatabase:
         self.index = AnnoyIndex(embeddings.shape[1], 'angular')
         for i, embedding in enumerate(embeddings):
             self.index.add_item(i, embedding)
-        self.index.build(10)  # 使用 10 棵樹來構建索引
+        self.index.build(10)
 
     def search(self, query, k=3):
+        if not self.documents or not self.model:
+            return ["Reference database not available"]
         query_vector = self.model.encode([query])[0]
         indices = self.index.get_nns_by_vector(query_vector, k, include_distances=False)
         return [self.documents[idx] for idx in indices]
 
+
 class GRIAnalyzer:
-    def __init__(self, cgm_df, reference_db):
+    def __init__(self, cgm_df, reference_db=None):
         self.cgm_df = cgm_df
         self.reference_db = reference_db
         self.glucose_column = 'Sensor Glucose (mg/dL)'
@@ -48,59 +85,51 @@ class GRIAnalyzer:
         glucose_values = pd.to_numeric(self.cgm_df[self.glucose_column], errors='coerce').dropna()
         gri = np.log(glucose_values / 100) ** 2
         mean_gri = gri.mean() * 100
-        
+
         analysis_result = {
             'Mean GRI': mean_gri,
             'Hypoglycemia Component': (glucose_values < 70).sum() / len(glucose_values) * 100,
             'Hyperglycemia Component': (glucose_values > 180).sum() / len(glucose_values) * 100
         }
-        
+
         return analysis_result
 
-def perform_gri_rag_analysis(cgm_df, reference_db, openai_api_key):
-    gri_analyzer = GRIAnalyzer(cgm_df, reference_db)
-    analysis_result = gri_analyzer.analyze()
-    
-    gri_value = round(analysis_result.get('Mean GRI', 0), 1)
-    
-    # 使用 RAG 從參考文獻中檢索相關信息
-    query = f"Glycemia Risk Index (GRI) value of {gri_value} interpretation and clinical significance"
-    relevant_passages = reference_db.search(query, k=2)
-    
-    # 構建提示
+
+def perform_gri_rag_analysis(gri_analysis, api_key=None, model_name="o3") -> GRIRAGResult:
+    """
+    使用 RAG 方法分析 GRI 數據。
+    """
     prompt = f"""
-    Based on a Glycemia Risk Index (GRI) value of {gri_value} and the following relevant information from medical literature:
+    請分析以下 GRI (Glycemic Risk Index) 數據：
+    {gri_analysis}
 
-    {' '.join(relevant_passages)}
+    請提供專業的解釋和建議，包括：
+    1. GRI 指標的含義
+    2. 當前數值的風險評估
+    3. 改善建議
 
-    Please provide an analysis and clinical interpretation in Traditional Chinese. Include:
-    1. The meaning and clinical importance of this GRI value
-    2. Potential implications for the patient's glycemic control
-    3. Any recommendations for management or further monitoring
-
-    Present your analysis in a cohesive paragraph format, using bold text to emphasize key points. Do not summarize or provide additional recommendations beyond what's supported by the given information.
+    請用中文（繁體）回答，並確保回答準確、專業且易於理解。
     """
 
-    # 使用 GPT-4 生成分析結果
-    client = OpenAI(api_key=openai_api_key)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are a diabetes management expert providing analysis based on GRI data and medical literature."},
-            {"role": "user", "content": prompt}
-        ],
+    messages = [
+        {"role": "system", "content": "You are a diabetes management expert analyzing GRI data."},
+        {"role": "user", "content": prompt}
+    ]
+
+    content, error_message, _, notice = request_llm_text(
+        api_key,
+        primary_model=model_name,
+        messages=messages,
         max_tokens=1000,
-        n=1,
-        stop=None,
-        temperature=0.7
+        fallback_models=DEFAULT_FALLBACK_MODELS,
+        missing_key_error="錯誤：需要提供 API 金鑰",
+        error_formatter=lambda model, exc: f"OpenAI API 調用錯誤 ({model}): {exc}",
+        fallback_notice_formatter=_format_gri_fallback_notice,
     )
-    
-    gpt4_analysis = response.choices[0].message.content
-    
-    # 返回完整的分析結果，使用 Markdown 格式
-    return f"""
 
-**GRI 值：{gri_value}**
+    cleaned_notice = notice.strip() if notice else None
+    if error_message:
+        return GRIRAGResult(content=error_message, notice=cleaned_notice)
 
-{gpt4_analysis}
-"""
+    clean_content = _strip_notice_prefix(content or "", cleaned_notice)
+    return GRIRAGResult(content=clean_content, notice=cleaned_notice)
