@@ -173,3 +173,28 @@ NEXT: 胰島素數據分析 圖示中，long/short color  一致，要改
 
 1. GRI 分析和繪圖：這涉及 gri_rag.py 和 gri_plotting.py 文件。
 RAG 深度分析：主要在 deep_analysis.py 中實現。
+
+
+##2020.10.8
+
+1. 詳細血糖變異性分析 (agp_variability.py)
+   - 使用 GPT-4 Vision API 分析 AGP 圖表
+     * 評估 50% 和 90% 百分位數陰影區域的寬度
+     * 分析不同時間段的血糖變異性和不穩定性
+   - 分析低血糖事件
+   - 分析高血糖事件
+   - 使用 GPT-4 模型提供詳細的低血糖和高血糖評估
+
+2. 結果展示 (main.py)
+   - 顯示基本血糖指標
+   - 顯示標準差（SD）、變異係數（CV）和 MAGE
+   - 顯示 AGP 圖表分析結果
+   - 顯示低血糖和高血糖分析結果
+   - 展示 AGP 圖和每日血糖聚類圖
+   - 在 deep_analysis.py 中：
+      重命名了 generate_gpt4_summary 函數為 insulin_glucose_interaction。
+      修改了 perform_deep_analysis 函數，移除了 meal_impact 分析，因為它還沒有準備好。
+      調整了 perform_deep_analysis 函數的參數列表和返回結果的結構。(不重覆調 gpt4)
+   
+   but lcoal runr error:  GRIAnalyzer.__init__() missing 1 required positional argument: 'reference_db'
+下回處理
