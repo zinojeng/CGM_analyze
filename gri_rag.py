@@ -100,15 +100,16 @@ def perform_gri_rag_analysis(gri_analysis, api_key=None, model_name="o3") -> GRI
     使用 RAG 方法分析 GRI 數據。
     """
     prompt = f"""
-    請分析以下 GRI (Glycemic Risk Index) 數據：
+    已知下列 GRI (Glycemic Risk Index) 指標：
     {gri_analysis}
 
-    請提供專業的解釋和建議，包括：
-    1. GRI 指標的含義
-    2. 當前數值的風險評估
-    3. 改善建議
+    請以病人為中心撰寫重點建議，請遵守：
+    - 不要解釋 GRI 定義或指標計算方式。
+    - 直接描述此個案的主要風險來源與可執行建議。
+    - 以最多 4 點條列呈現，每點不超過 40 字。
+    - 若數據不足或需臨床確認，請在最後一點提醒。
 
-    請用中文（繁體）回答，並確保回答準確、專業且易於理解。
+    請用中文（繁體）回答。
     """
 
     messages = [
@@ -120,7 +121,7 @@ def perform_gri_rag_analysis(gri_analysis, api_key=None, model_name="o3") -> GRI
         api_key,
         primary_model=model_name,
         messages=messages,
-        max_tokens=1000,
+        max_tokens=400,
         fallback_models=DEFAULT_FALLBACK_MODELS,
         missing_key_error="錯誤：需要提供 API 金鑰",
         error_formatter=lambda model, exc: f"OpenAI API 調用錯誤 ({model}): {exc}",

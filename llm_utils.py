@@ -9,8 +9,15 @@ from openai import OpenAI
 
 
 RESPONSES_PREFIXES: Tuple[str, ...] = ("o", "gpt-5", "gpt-4.1", "gpt-4o")
-REASONING_PREFIXES: Tuple[str, ...] = ("o", "gpt-5")
+REASONING_PREFIXES: Tuple[str, ...] = ("o",)
 DEFAULT_FALLBACK_MODELS: List[str] = ["gpt-5-mini", "gpt-4o-mini"]
+
+
+def _resolve_max_output_tokens(model_name: str, requested: int) -> int:
+    lower = model_name.lower()
+    if lower.startswith("gpt-5"):
+        return max(requested, 4096)
+    return requested
 
 
 def _uses_responses_api(model_name: str) -> bool:
@@ -18,21 +25,86 @@ def _uses_responses_api(model_name: str) -> bool:
     return any(lower.startswith(prefix) for prefix in RESPONSES_PREFIXES)
 
 
+
+
+def _supports_temperature_parameter(model_name: str) -> bool:
+    lower = model_name.lower()
+    if lower.startswith("gpt-5"):
+        return False
+    return True
+
+
+
 def _supports_reasoning_effort(model_name: str) -> bool:
     lower = model_name.lower()
     return any(lower.startswith(prefix) for prefix in REASONING_PREFIXES)
 
 
-def format_messages_for_responses(messages: Sequence[dict]) -> str:
-    parts: List[str] = []
+def _messages_to_responses_input(messages: Sequence[dict]) -> List[dict]:
+    """Convert chat messages into Responses API input format."""
+
+    formatted: List[dict] = []
+
     for message in messages:
-        role = message.get("role", "user").upper()
-        content = message.get("content", "")
-        if isinstance(content, list):
-            texts = [item.get("text", "") for item in content if isinstance(item, dict)]
-            content = "\n".join(texts)
-        parts.append(f"{role}:\n{content}".strip())
-    return "\n\n".join(parts)
+        role = (message or {}).get("role") or "user"
+        raw_content = (message or {}).get("content", "")
+        content_blocks: List[dict] = []
+
+        def _normalize_block_type(block_type: str | None) -> str:
+            allowed = {"input_text", "input_image", "output_text", "refusal", "input_file", "computer_screenshot", "summary_text"}
+            if not block_type:
+                return "input_text" if role != "assistant" else "output_text"
+            lowered = str(block_type).lower()
+            if lowered == "text":
+                return "input_text" if role != "assistant" else "output_text"
+            if lowered in allowed:
+                return lowered
+            return "input_text" if role != "assistant" else "output_text"
+
+        def _append_text_block(text_value, *, block_type: str | None = None) -> None:
+            if text_value is None:
+                return
+            text_str = str(text_value).strip()
+            if not text_str:
+                return
+            normalized_type = _normalize_block_type(block_type)
+            content_blocks.append({"type": normalized_type, "text": text_str})
+
+        if isinstance(raw_content, list):
+            for item in raw_content:
+                if isinstance(item, dict):
+                    block_type = item.get("type")
+                    text_payload = item.get("text")
+                    if isinstance(text_payload, dict):
+                        text_payload = text_payload.get("value") or text_payload.get("text")
+                    if text_payload is None and "content" in item:
+                        nested = item.get("content")
+                        if isinstance(nested, (list, tuple)):
+                            for nested_item in nested:
+                                if isinstance(nested_item, dict):
+                                    nested_text = nested_item.get("text")
+                                    if isinstance(nested_text, dict):
+                                        nested_text = nested_text.get("value") or nested_text.get("text")
+                                    if nested_text:
+                                        _append_text_block(nested_text, block_type=block_type)
+                                elif isinstance(nested_item, str):
+                                    _append_text_block(nested_item, block_type=block_type)
+                        elif isinstance(nested, str):
+                            _append_text_block(nested, block_type=block_type)
+                        continue
+                    _append_text_block(text_payload, block_type=block_type)
+                elif isinstance(item, str):
+                    _append_text_block(item)
+        else:
+            _append_text_block(raw_content)
+
+        if not content_blocks:
+            continue
+
+        formatted.append({"role": role, "content": content_blocks})
+
+    return formatted
+
 
 
 def _should_try_fallback(error_message: str) -> bool:
@@ -57,27 +129,58 @@ def _extract_text_from_response(response) -> str:
     if text:
         return text
 
-    chunks: List[str] = []
-    outputs = getattr(response, "output", None) or []
-    for item in outputs:
-        contents = getattr(item, "content", None)
-        if contents is None and isinstance(item, dict):
-            contents = item.get("content")
-        if not contents:
-            continue
-        for content in contents:
-            content_type = getattr(content, "type", None)
-            if content_type is None and isinstance(content, dict):
-                content_type = content.get("type")
-            if content_type not in {"output_text", "text"}:
-                continue
-            text_value = getattr(content, "text", None)
-            if text_value is None and isinstance(content, dict):
-                text_value = content.get("text")
-            if text_value:
-                chunks.append(text_value)
+    collected: List[str] = []
+    seen: set[int] = set()
 
-    return "\n".join(chunks).strip()
+    def _collect(value) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                collected.append(stripped)
+            return
+        marker = id(value) if isinstance(value, (list, tuple, dict)) or hasattr(value, "__dict__") else None
+        if marker is not None:
+            if marker in seen:
+                return
+            seen.add(marker)
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                _collect(item)
+            return
+        if isinstance(value, dict):
+            for key in ("text", "output_text", "value", "data"):
+                if key in value:
+                    _collect(value[key])
+            for key in ("content", "parts", "messages", "annotations"):
+                if key in value:
+                    _collect(value[key])
+            return
+        if hasattr(value, "text"):
+            _collect(getattr(value, "text"))
+        if hasattr(value, "output_text"):
+            _collect(getattr(value, "output_text"))
+        if hasattr(value, "value"):
+            _collect(getattr(value, "value"))
+        if hasattr(value, "content"):
+            _collect(getattr(value, "content"))
+        if hasattr(value, "annotations"):
+            _collect(getattr(value, "annotations"))
+        data = getattr(value, "__dict__", None)
+        if isinstance(data, dict):
+            _collect(data)
+
+    _collect(getattr(response, "output", None))
+    if not collected:
+        _collect(getattr(response, "data", None))
+    if not collected and hasattr(response, "model_dump"):
+        try:
+            _collect(response.model_dump())
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+    return "\n".join(collected).strip()
 
 
 @dataclass
@@ -192,16 +295,31 @@ def _call_single_model(
     if _uses_responses_api(model_name):
         kwargs = {
             "model": model_name,
-            "input": format_messages_for_responses(messages),
-            "max_output_tokens": max_tokens,
+            "input": _messages_to_responses_input(messages),
+            "max_output_tokens": _resolve_max_output_tokens(model_name, max_tokens),
         }
+        if temperature is not None and _supports_temperature_parameter(model_name):
+            kwargs["temperature"] = temperature
         if _supports_reasoning_effort(model_name):
             kwargs["reasoning"] = {"effort": "medium"}
 
         response = client.responses.create(**kwargs)
         text = _extract_text_from_response(response)
         if not text:
-            raise ValueError("empty_response_text")
+            raw_payload = ""
+            try:
+                if hasattr(response, "model_dump"):
+                    raw_payload = response.model_dump()
+                elif hasattr(response, "to_dict"):
+                    raw_payload = response.to_dict()
+                else:
+                    raw_payload = getattr(response, "__dict__", response)
+            except Exception:  # pylint: disable=broad-except
+                raw_payload = response
+            snippet = str(raw_payload)
+            if len(snippet) > 2000:
+                snippet = snippet[:2000] + "..."
+            raise ValueError(f"empty_response_text (payload_snippet={snippet})")
         return text
 
     completion = client.chat.completions.create(

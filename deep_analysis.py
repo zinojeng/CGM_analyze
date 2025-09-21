@@ -197,7 +197,7 @@ def _summarize_cgm_metrics(cgm_metrics, profile_config=None):
         lines.append(f"- GMI (估算 A1c) 約 **{_format_float(gmi, decimals=2)}%**。")
 
     mage = cgm_metrics.get("MAGE")
-    if mage is not None:
+    if mage is not None and mage > 0:
         lines.append(f"- MAGE (平均血糖波動幅度) 為 **{_format_float(mage)}**，可對應波動是否劇烈。")
 
     if not lines:
@@ -276,16 +276,14 @@ def _summarize_insulin_stats(insulin_stats):
     return "\n".join(lines)
 
 
-def _summarize_agp_variability(agp_analysis, hypo_hyper_analysis, sd, cv, mage):
+def _summarize_agp_variability(agp_analysis, hypo_hyper_analysis, envelope_summary):
     lines = []
     if agp_analysis:
         lines.append(f"- AGP 評析：{agp_analysis}")
     if hypo_hyper_analysis:
         lines.append(f"- 低/高血糖風險：{hypo_hyper_analysis}")
-    sd_text = _format_float(sd, ' mg/dL')
-    cv_text = _format_percentage(cv)
-    mage_text = _format_float(mage)
-    lines.append(f"- 波動指標：SD {sd_text}｜CV {cv_text}｜MAGE {mage_text}")
+    if envelope_summary:
+        lines.append(envelope_summary)
     return "\n".join(lines)
 
 
@@ -447,9 +445,7 @@ def generate_integrated_summary(
     insulin_stats,
     agp_analysis,
     hypo_hyper_analysis,
-    sd,
-    cv,
-    mage,
+    agp_envelope_summary,
     gri_analysis,
     gri_gpt4_analysis,
     insulin_glucose_analysis,
@@ -472,24 +468,22 @@ def generate_integrated_summary(
     cgm_block = ""
     if cgm_summary_text:
         cgm_block += f"### CGM 指標摘要 (文字)\n{cgm_summary_text}\n\n"
-    cgm_block += _format_json_block("CGM 指標 (JSON)", cgm_metrics)
+    cgm_block += _format_json_block("CGM 指標資料", cgm_metrics)
 
     insulin_block = ""
     if insulin_summary_text:
         insulin_block += f"### 胰島素統計摘要 (文字)\n{insulin_summary_text}\n\n"
-    insulin_block += _format_json_block("胰島素統計 (JSON)", insulin_stats)
+    insulin_block += _format_json_block("胰島素統計資料", insulin_stats)
 
     agp_block = "### AGP 與變異解析\n"
     if agp_summary_text:
         agp_block += f"{agp_summary_text}\n\n"
-    sd_text = _format_float(sd, ' mg/dL')
-    cv_text = _format_percentage(cv)
-    mage_text = _format_float(mage)
     agp_block += (
         f"- 原始文字解析：{agp_analysis}\n"
-        f"- 低/高血糖評估：{hypo_hyper_analysis}\n"
-        f"- SD: `{sd_text}` | CV: `{cv_text}` | MAGE: `{mage_text}`"
+        f"- 低/高血糖評估：{hypo_hyper_analysis}"
     )
+    if agp_envelope_summary:
+        agp_block += f"\n{agp_envelope_summary}"
 
     gri_block = "### GRI 解析\n"
     if gri_summary_text:
@@ -505,12 +499,12 @@ def generate_integrated_summary(
     insulin_pk_block = ""
     if insulin_pk_summary_text:
         insulin_pk_block += f"### 胰島素藥代摘要 (文字)\n{insulin_pk_summary_text}\n\n"
-    insulin_pk_block += _format_json_block("胰島素藥代特徵 (JSON)", insulin_pharmacokinetics)
+    insulin_pk_block += _format_json_block("胰島素藥代特徵", insulin_pharmacokinetics)
 
     meal_block = ""
     if meal_summary_text:
         meal_block += f"### 餐食影響摘要 (文字)\n{meal_summary_text}\n\n"
-    meal_block += _format_json_block("餐食影響 (JSON)", meal_impact)
+    meal_block += _format_json_block("餐食影響資料", meal_impact)
 
     base_prompt = (
         f"患者族群：{profile_name}\n"
@@ -528,11 +522,10 @@ def generate_integrated_summary(
 
     instructions = (
         "請以繁體中文提供整合分析，格式要求：\n"
-        "- 以二級標題 (##) 或三級標題 (###) 組織段落。\n"
-        "- 段落順序依序為：整體控制現況、主要風險與可能成因、胰島素調整建議、餐食與生活型態洞察、優先行動清單、後續監測指引。\n"
-        "- 優先行動清單需列出 3-5 點，標註優先等級與建議時程 (例如：1-2 週內)。\n"
+        "- 僅輸出兩個段落，分別以 `## 整體控制概況` 與 `## 主要風險與成因` 為標題。\n"
+        "- 每段可用項目符號說明，但不要新增胰島素調整、生活型態、優先行動或監測指引等額外標題。\n"
         "- 重要數值請使用粗體或反引號標示，並清楚引用來源指標。\n"
-        "- 若觀察到資料不足或需要人工確認的地方，請於監測指引段落標註。"
+        "- 若資料不足或需臨床確認，請在最後一句簡短提醒。"
     )
 
     messages = [
@@ -586,12 +579,13 @@ def perform_deep_analysis(
     model_name="o3",
     profile_config=None,
     agp_notice=None,
-    gri_notice=None
+    gri_notice=None,
+    agp_envelope_summary=None
 ):
     insulin_pharmacokinetics = analyze_insulin_pharmacokinetics(cgm_df, insulin_data)
     meal_impact = analyze_meal_impact(cgm_df, meal_data)
 
-    insulin_glucose_analysis, insulin_notice = insulin_glucose_interaction(
+    insulin_glucose_analysis, _insulin_notice = insulin_glucose_interaction(
         cgm_metrics,
         insulin_stats,
         profile_config,
@@ -601,7 +595,7 @@ def perform_deep_analysis(
 
     cgm_summary = _summarize_cgm_metrics(cgm_metrics, profile_config)
     insulin_summary = _summarize_insulin_stats(insulin_stats)
-    agp_summary = _summarize_agp_variability(agp_analysis, hypo_hyper_analysis, sd, cv, mage)
+    agp_summary = _summarize_agp_variability(agp_analysis, hypo_hyper_analysis, agp_envelope_summary)
     gri_summary = _summarize_gri(gri_analysis, gri_gpt4_analysis)
     insulin_pk_summary = _summarize_insulin_pharmacokinetics(insulin_pharmacokinetics)
     meal_summary = _summarize_meal_impact(meal_impact)
@@ -611,9 +605,7 @@ def perform_deep_analysis(
         insulin_stats=insulin_stats,
         agp_analysis=agp_analysis,
         hypo_hyper_analysis=hypo_hyper_analysis,
-        sd=sd,
-        cv=cv,
-        mage=mage,
+        agp_envelope_summary=agp_envelope_summary,
         gri_analysis=gri_analysis,
         gri_gpt4_analysis=gri_gpt4_analysis,
         insulin_glucose_analysis=insulin_glucose_analysis,
@@ -632,17 +624,7 @@ def perform_deep_analysis(
 
     deep_analysis_result = {
         "整合總結": integrated_summary,
-        "CGM 指標摘要": cgm_summary,
-        "胰島素使用重點": insulin_summary,
-        "AGP 與變異分析": agp_summary,
-        "GRI 解析摘要": gri_summary,
-        "胰島素與血糖互動解析": insulin_glucose_analysis,
-        "胰島素藥代觀察": insulin_pk_summary,
-        "餐食影響摘要": meal_summary,
     }
-
-    if profile_config:
-        deep_analysis_result['Patient Profile Guidance'] = _summarize_profile_guidance(profile_config)
 
     notice_groups: dict[str, list[str]] = {}
 
@@ -655,7 +637,6 @@ def perform_deep_analysis(
 
     _append_notice("AGP 變異分析", agp_notice)
     _append_notice("GRI RAG 解讀", gri_notice)
-    _append_notice("胰島素與血糖互動解析", insulin_notice)
     _append_notice("整合總結", integrated_notice)
 
     if notice_groups:

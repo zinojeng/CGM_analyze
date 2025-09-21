@@ -287,17 +287,16 @@ if uploaded_file:
                         mage = agp_result.mage
 
                         st.pyplot(agp_plot)
-                        st.subheader("Daily Clusters Plot")
-                        st.pyplot(daily_clusters_plot)
-
                         if agp_result.notice:
                             st.caption(agp_result.notice.strip())
 
                         st.write("AGP 分析:", agp_analysis)
                         st.write("低血糖和高血糖分析:", hypo_hyper_analysis)
-                        st.write(f"標準差 (SD): {sd:.2f}")
-                        st.write(f"變異係數 (CV): {cv:.2f}%")
-                        st.write(f"平均血糖波動幅度 (MAGE): {mage:.2f}")
+                        if agp_result.envelope_summary:
+                            st.markdown(agp_result.envelope_summary)
+
+                        st.subheader("Daily Clusters Plot")
+                        st.pyplot(daily_clusters_plot)
 
                         st.subheader("GRI 分析")
                         try:
@@ -323,29 +322,31 @@ if uploaded_file:
                             st.markdown(format_gri_metrics_text(gri_analysis))
                             if gri_rag_result.notice:
                                 st.caption(gri_rag_result.notice.strip())
-                            st.write("GRI GPT-4 解釋:", gri_rag_result.content)
+                            if gri_rag_result.content:
+                                st.markdown(gri_rag_result.content)
 
                         except Exception as e:
                             st.error(f"GRI 分析時發生錯誤：{str(e)}")
 
                         deep_analysis_result = perform_deep_analysis(
-                            cgm_df,
-                            insulin_data,
-                            meal_data,
-                            cgm_metrics,
-                            insulin_stats,
-                            agp_analysis,
-                            hypo_hyper_analysis,
-                            sd,
-                            cv,
-                            mage,
-                            gri_analysis,
-                            gri_rag_result.content,
+                            cgm_df=cgm_df,
+                            insulin_data=insulin_data,
+                            meal_data=meal_data,
+                            cgm_metrics=cgm_metrics,
+                            insulin_stats=insulin_stats,
+                            agp_analysis=agp_analysis,
+                            hypo_hyper_analysis=hypo_hyper_analysis,
+                            gri_analysis=gri_analysis,
+                            gri_gpt4_analysis=gri_rag_result.content,
                             openai_api_key=openai_api_key,
                             model_name=selected_model,
                             profile_config=profile_config,
                             agp_notice=agp_result.notice,
-                            gri_notice=gri_rag_result.notice
+                            gri_notice=gri_rag_result.notice,
+                            agp_envelope_summary=agp_result.envelope_summary,
+                            sd=sd,
+                            cv=cv,
+                            mage=mage
                         )
 
                         st.subheader("綜合分析結果")
