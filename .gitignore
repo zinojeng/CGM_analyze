@@ -3,3 +3,4 @@ output_directory/
 .venv/
 *.pyc
 .DS_Store
+log/
